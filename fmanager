@@ -31,9 +31,10 @@ date_format='%Y-%m-%d_%H:%M:%S'
 script_start=`date +"${date_format}"`
 
 # Server package download URLs
-f_url_stable='https://www.factorio.com/download-headless'
-f_url_experimental='https://www.factorio.com/download-headless/experimental'
-f_url_selector='stable'
+f_url='https://www.factorio.com/'
+f_url_stable="${f_url}download-headless"
+f_url_experimental="${f_url}download-headless/experimental"
+f_url_selector='experimental'
 f_package='headless/linux64'
 
 
@@ -178,7 +179,42 @@ function updateCache {
   
   # @TODO - actually download the headless server version numbers to cache directory
   runAsUser "curl --silent ${url} | grep get-download | cut -d'/' -f3 > ${version_file}.tmp"
+  runAsUser "cat ${version_file} >> ${version_file}.tmp"
+  runAsUser "cat ${version_file}.tmp | sort --reverse | uniq > ${version_file}"
   
+}
+
+function purgeCache {
+  runAsUser "echo '' > ${version_file}"
+  runAsUser "echo '' > ${version_file}.tmp"
+}
+
+function update {
+  local update_cache=1
+  local clear_cache=0
+  local download=1
+
+  for i in "$@"; do
+    case "$i" in
+      clear)
+        clear_cache=1
+      ;;
+    esac
+  done
+
+  if [ ${clear_cache} -ne 0 ];then
+    purgeCache
+  fi
+  if [ ${update_cache} -ne 0 ];then
+    updateCache
+  fi
+  if [ ${download} -ne 0 ];then
+  
+      local version=`cat ${version_file} | head -1`
+      runAsUser "wget ${f_url}/get-download/${version}/${f_package} -O ${cache_dir}${version}.tar.gz"
+
+  fi
+
 }
 
 # Display usage information.
@@ -237,6 +273,9 @@ if [ -z $UPDATECACHE ];then
 fi
 if [ -z $LOG ];then
   LOG=0
+fi
+if [ -z $UPDATE ];then
+  UPDATE=0
 fi
 
 # If no commands are passed in, display help
@@ -323,6 +362,7 @@ fi
 exit 0
 
 # @TODO - check for running server(s) before updating/clearing cache
+# @TODO - detect which versions are being used and offer to download them
 
 # List of commands from
 # https://github.com/factoriommo/factorio-multienv-ctl/blob/730e6cf495e4a4fe5e1530aec0e6a26465c28f89/factorio#L53-L71
