@@ -188,6 +188,20 @@ function purgeCache {
   runAsUser "rm -rf ${cache_dir}*"
 }
 
+function listLocalVersions {
+  logThis 1 "Factorio Versions (local):"
+  logThis 1 "`ls ${cache_dir} | egrep -v "tar|tmp|cache"`"
+  logThis 2 "(end local versions)"
+}
+
+function listRemoteVersions {
+
+  logThis 1 "Factorio Versions (remote):"
+  logThis 1 "`cat ${version_file}`"
+  logThis 2 "(end remote versions)"
+  
+}
+
 function update {
   local update_cache=1
   local clear_cache=0
@@ -196,7 +210,7 @@ function update {
   
   local version=0
   
-  if [ ! -z ${VERSION} ];then
+  if [ ! -z ${VERSION} ] && [ ! ${VERSION} == 0 ];then
     version=${VERSION}
   else
     version=$(cat ${version_file} | head -1)
@@ -207,12 +221,16 @@ function update {
       update)
         update_cache=1
         download=1
+        unpack=1
       ;;
       clear)
         clear_cache=1
+        download=0
+        unpack=0
       ;;
       unpack)
         unpack=1
+        download=0
       ;;
     esac
   done
@@ -303,9 +321,12 @@ fi
 if [ -z $UPDATE ];then
   UPDATE=0
 fi
-#if [ -z $VERSION ];then
-#  VERSION=0
-#fi
+if [ -z $VERSION ];then
+  VERSION=0
+fi
+if [ -z $LISTVERSIONS ];then
+  LISTVERSIONS=0
+fi
 
 # If no commands are passed in, display help
 if [ -z "$*" ];then
@@ -338,6 +359,9 @@ else
       ;;
       update)
         UPDATE=1
+      ;;
+      versions)
+        LISTVERSIONS=1
       ;;
       clear)
       ;;
@@ -378,7 +402,6 @@ if [ -z "${configuration_dir}" ];then
 fi
 
 
-
 # @TODO - add (optional, based on sudo permissions) auto-init?
 # eg "looks like you don't have a $CONFIG folder, create now? [y/N]" prompt
 if [ ${DOINIT} -ne 0 ];then
@@ -393,11 +416,18 @@ if [ ${UPDATE} -ne 0 ];then
   update $@
 fi
 
+if [ ${LISTVERSIONS} -ne 0 ];then
+  updateCache
+  listLocalVersions
+  listRemoteVersions
+fi
+
 
 exit 0
 
 # @TODO - check for running server(s) before updating/clearing cache
 # @TODO - detect which versions are being used and offer to download them
+# @TODO - set up better dry-run configuration
 
 # List of commands from
 # https://github.com/factoriommo/factorio-multienv-ctl/blob/730e6cf495e4a4fe5e1530aec0e6a26465c28f89/factorio#L53-L71
@@ -413,8 +443,6 @@ exit 0
 # new-game name\t Stops the server and creates a new game with the specified name
 # save-game name \t Stops the server and saves game to specified save
 # load-save name \t Stops the server and loads the specified save
-# install tarball \t Installs the server with specified tarball
-# update [--dry-run] \t Updates the server
 # invocation \t\t Outputs the invocation for debugging purpose
 # listcommands \t List all init-commands
 # listsaves \t\t List all saves
