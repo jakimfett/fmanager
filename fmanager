@@ -16,7 +16,7 @@ install_dir='/opt/factorio/'
 log_dir='/var/log/factorio/'
 cache_dir='/var/cache/factorio/'
 
-version_file="${cache_dir}${0}_server.versions"
+version_file="${cache_dir}versions.cache"
 manager_log_file="${log_dir}${0}.log"
 
 run_user='factorio'
@@ -179,14 +179,13 @@ function updateCache {
   
   # @TODO - actually download the headless server version numbers to cache directory
   runAsUser "curl --silent ${url} | grep get-download | cut -d'/' -f3 > ${version_file}.tmp"
-  runAsUser "cat ${version_file} >> ${version_file}.tmp"
+  runAsUser "cat ${version_file} >> ${version_file}.tmp 2> /dev/null"
   runAsUser "cat ${version_file}.tmp | sort --reverse | uniq > ${version_file}"
   
 }
 
 function purgeCache {
-  runAsUser "echo '' > ${version_file}"
-  runAsUser "echo '' > ${version_file}.tmp"
+  runAsUser "rm -rf ${cache_dir}*"
 }
 
 function update {
@@ -198,6 +197,7 @@ function update {
     case "$i" in
       clear)
         clear_cache=1
+        download=0
       ;;
     esac
   done
@@ -208,11 +208,11 @@ function update {
   if [ ${update_cache} -ne 0 ];then
     updateCache
   fi
-  if [ ${download} -ne 0 ];then
-  
-      local version=`cat ${version_file} | head -1`
-      runAsUser "wget ${f_url}/get-download/${version}/${f_package} -O ${cache_dir}${version}.tar.gz"
 
+  if [ ${download} -ne 0 ];then
+      local version=`cat ${version_file} | head -1`
+      local filesize=$()
+      runAsUser "wget ${f_url}get-download/${version}/${f_package} --output-document=${cache_dir}${version}.tar.gz"
   fi
 
 }
@@ -229,8 +229,7 @@ function usageHelp {
   echo -e "\t log clear \t\t empties the manager log. (sudo only)"
   echo
   echo -e "\t update \t\t downloads the latest server to the cache directory."
-  echo
-  echo -e "\t cache clear \t\t purges the cache."
+  echo -e "\t update clear \t\t purges the cache directory."
   
   echo
   echo "Available (optional) variables:"
@@ -242,6 +241,9 @@ function usageHelp {
 
 function cleanup {
   wait
+  
+  rm -rf ${log_dir}*.tmp ${install_dir}*.tmp ${configuration_dir}*.tmp ${cache_dir}*.tmp
+  
   if [ $LOGLEVEL -ne 0 ];then
     logThis "Done, fmanager exiting."
   fi
@@ -303,6 +305,9 @@ else
       log)
         LOG=1
       ;;
+      update)
+        UPDATE=1
+      ;;
       clear)
       ;;
       update)
@@ -363,6 +368,7 @@ exit 0
 
 # @TODO - check for running server(s) before updating/clearing cache
 # @TODO - detect which versions are being used and offer to download them
+# @TODO - add option to download a specific version rather than latest
 
 # List of commands from
 # https://github.com/factoriommo/factorio-multienv-ctl/blob/730e6cf495e4a4fe5e1530aec0e6a26465c28f89/factorio#L53-L71
