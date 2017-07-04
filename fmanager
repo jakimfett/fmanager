@@ -191,12 +191,22 @@ function purgeCache {
 function update {
   local update_cache=1
   local clear_cache=0
-  local download=1
+  local download=0
   local unpack=0
   
+  local version=0
   
-  local version=`cat ${version_file} | head -1`
-
+  if [ ! -z ${VERSION} ];then
+    version=${VERSION}
+  else
+    version=$(cat ${version_file} | head -1)
+  fi
+  
+  if [ ! -f "${cache_dir}${version}.tar.gz" ];then
+    echo "No file '${cache_dir}${version}.tar.gz' update cannot continue!"
+    exit 1
+  fi
+  
   for i in "$@"; do
     case "$i" in
       clear)
@@ -292,6 +302,9 @@ fi
 if [ -z $UPDATE ];then
   UPDATE=0
 fi
+#if [ -z $VERSION ];then
+#  VERSION=0
+#fi
 
 # If no commands are passed in, display help
 if [ -z "$*" ];then
@@ -299,9 +312,13 @@ if [ -z "$*" ];then
 else
   for i in "$@"; do
     case "$i" in
-      --log-level=^[0-9]$|-l=^[0-9]$)
+      --log-level=[0-9]|-l=[0-9])
         # Get the passed in value
         LOGLEVEL=$(echo "${i}" | cut -d'=' -f2)
+      ;;
+      --version=[0-9]*.[0-9]*.[0-9]*|-v=[0-9]*.[0-9]*.[0-9]*)
+        # Get the passed in value
+        VERSION=$(echo "${i}" | cut -d'=' -f2)
       ;;
       --dry-run|--dry-run=true)
         DRYRUN=1
@@ -380,7 +397,6 @@ exit 0
 
 # @TODO - check for running server(s) before updating/clearing cache
 # @TODO - detect which versions are being used and offer to download them
-# @TODO - add option to download a specific version rather than latest
 
 # List of commands from
 # https://github.com/factoriommo/factorio-multienv-ctl/blob/730e6cf495e4a4fe5e1530aec0e6a26465c28f89/factorio#L53-L71
