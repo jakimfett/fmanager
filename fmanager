@@ -49,7 +49,7 @@ function runAsUser {
 function logThis {
   if [[ $1 =~ ^[0-9]+$ ]];then
     if [ ${LOGLEVEL} -ge $1 ];then
-      echo `now`: $2 | runAsUser "tee -a ${log_dir}${log_file}"
+      echo `now` [level=$1]: $2 | runAsUser "tee -a ${log_dir}${log_file}"
     else
       runAsUser "echo `now` [level=$1]: $2 >> ${log_dir}${log_file}"
     fi
@@ -114,18 +114,30 @@ function init {
 function tailLog {
   runAsUser "tail -20 ${log_dir}${log_file}"
 }
+function clearLog {
+  local temp_log='/tmp/cleared.log'
+  runAsUser "grep 'Log cleared' ${log_dir}${log_file} > ${temp_log}"
+  runAsUser "cat ${temp_log} > ${log_dir}${log_file}"
+  logThis 0 "Log cleared at '`now`' by `whoami`."
+  runAsUser "rm -rf /tmp/cleared.log"
+}
 
 # Display usage information.
 function usageHelp {
   echo
   echo "Available commands:"
-  echo -e "\t help \t\t displays usage help."
-  echo -e "\t init \t\t creates folders and files for configuration and logging. Does NOT replace existing."
-  echo -e "\t autostart \t\t sets all configured servers to auto-start on server boot."
+  echo -e "\t help \t\t\t displays usage help."
+  if [ checkSudo ];then
+    echo -e "\t init \t\t\t creates folders and files for configuration and logging. (sudo only)"
+  fi
+  echo -e "\t log \t\t\t shows the last 50 lines of the manager log."
+  if [ checkSudo ];then
+    echo -e "\t log clear \t\t empties the manager log. (sudo only)"
+  fi
   echo
   echo "Available (optional) variables:"
   echo -e "\t\$LOGLEVEL\tdefault is '1' \t\t displays extra function status and debugging text if set to non-zero"
-  echo -e "\t\$DRYRUN\tdefault is '1' \t\t prints output and check results, but doesn't actually write any values"
+  echo -e "\t\$DRYRUN\t\tdefault is '1' \t\t prints output and check results, but doesn't actually write any values"
   echo
 }
 
@@ -161,6 +173,9 @@ fi
 if [ -z $UPDATECACHE ];then
   UPDATECACHE=0
 fi
+if [ -z $LOG ];then
+  LOG=0
+fi
 
 # If no commands are passed in, display help
 if [ -z "$*" ];then
@@ -185,8 +200,9 @@ else
         DOINIT=1
       ;;
       log)
-      # Prints the Factorio service log
-        tailLog
+        LOG=1
+      ;;
+      clear)
       ;;
       update)
         UPDATECACHE=1
@@ -198,6 +214,26 @@ else
   done
 fi
 
+# Warn the user if their command isn't recognized.
+if [ ${UNRECOGNIZED} -ne 0 ];then
+  command_string=`echo "${0} ${@}"`
+  logThis 0 "Command '${command_string}' not recognized!"
+  unset command_string
+  HELP=1
+else
+  command_string=`echo "${0} ${@}"`
+  logThis 9 "Command '${command_string}' executed by user '`whoami`'."
+  unset command_string
+  
+fi
+
+# Display help
+if [ ${HELP} -ne 0 ];then
+  LOGLEVEL=0
+  usageHelp
+  exit 0
+fi
+
 # Refuse to continue if essential files and folders don't exist.
 if [ -z "${configuration_dir}" ];then
   logThis 0 "Configuration directory (configuration_dir) variable not set!"
@@ -205,7 +241,43 @@ if [ -z "${configuration_dir}" ];then
   exit 1
 fi
 
+
+
+# @TODO - add (optional, based on sudo permissions) auto-init?
+# eg "looks like you don't have a $CONFIG folder, create now? [y/N]" prompt
+if [ ${DOINIT} -ne 0 ];then
+  init
+fi
+
+function logging {
+  local clear_log=0
+  local display_log=1
+
+  for i in "$@"; do
+    case "$i" in
+      clear)
+        clear_log=1
+        display_log=0
+      ;;
+    esac
+  done
+
+  if [ ${display_log} -ne 0 ];then
+    tailLog
+  fi
+  
+  if [ ${clear_log} -ne 0 ];then
+    clearLog
+  fi
+}
+
+if [ ${LOG} -ne 0 ];then
+  logging
+fi
+
+# Handle updating
 if [ $UPDATECACHE -ne 0 ];then
+  # Get HTTP status of update URLs
   local f_url_status=`curl -s -I ${f_url} | head -1 | cut -d' ' -f 2`
   local f_url_experimental_status=`curl -s -I ${f_url_experimental} | head -1 | cut -d' ' -f 2`
 
@@ -221,23 +293,6 @@ if [ $UPDATECACHE -ne 0 ];then
   fi
 fi
 
-# Warn the user if their command isn't recognized.
-if [ ${UNRECOGNIZED} -ne 0 ];then
-  logThis 0 "Command '$0 $@' not recognized!"
-  HELP=1
-fi
-
-# Display help
-if [ ${HELP} -ne 0 ];then
-  LOGLEVEL=0
-  usageHelp
-fi
-
-# @TODO - add (optional, based on sudo permissions) auto-init?
-# eg "looks like you don't have a $CONFIG folder, create now? [y/N]" prompt
-if [ ${DOINIT} -ne 0 ];then
-  init
-fi
 
 exit 0
 
