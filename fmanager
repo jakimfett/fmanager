@@ -28,8 +28,9 @@ log_file="${0}.log"
 script_start=`date +"${date_format}"`
 
 # Server package download URLs
-f_url='https://www.factorio.com/download-headless'
+f_url_stable='https://www.factorio.com/download-headless'
 f_url_experimental='https://www.factorio.com/download-headless/experimental'
+f_url_selector='stable'
 
 
 function now {
@@ -37,7 +38,7 @@ function now {
 }
 
 function runAsUser {
-  if [ "`whoami`" == "${run_user}" ]; then
+  if [ "`whoami`" == "${run_user}" ];then
     bash -c "$1"
   else
     sudo su "${run_user}" -s /bin/bash -c "$1"
@@ -46,6 +47,7 @@ function runAsUser {
 
 
 # Logging function
+# @TODO - convert log level numbers to human readable format
 function logThis {
   if [[ $1 =~ ^[0-9]+$ ]];then
     if [ ${LOGLEVEL} -ge $1 ];then
@@ -120,6 +122,28 @@ function clearLog {
   runAsUser "cat ${temp_log} > ${log_dir}${log_file}"
   logThis 0 "Log cleared at '`now`' by `whoami`."
   runAsUser "rm -rf /tmp/cleared.log"
+}
+
+function updateCache {
+  # Get HTTP status of update URLs
+  logThis 2 "Getting update URL status for '${f_url_selector}'..."
+  
+  local f_url_status=0
+  if [[ "${f_url_selector}" == *"stable"* ]];then
+    f_url_status=$(curl -s -I ${f_url_stable} | head -1 | cut -d' ' -f 2)
+  elif [[ "${f_url_selector}" == *"experimental"* ]];then
+    f_url_status=$(curl -s -I ${f_url_experimental} | head -1 | cut -d' ' -f 2)
+  fi
+  
+  logThis 2 "URL status fetched."
+
+  if [ "${f_url_status}" -ne 200 ];then
+    logThis 0 "Factorio server URL returning '${f_url_status}'."
+    logThis 0 "Cannot perform update until this is resolved!"
+    exit 1
+  fi
+  
+  # @TODO - actually download the headless server to cache directory
 }
 
 # Display usage information.
@@ -272,25 +296,12 @@ function logging {
 }
 
 if [ ${LOG} -ne 0 ];then
-  logging
+  logging $@
 fi
 
 # Handle updating
 if [ $UPDATECACHE -ne 0 ];then
-  # Get HTTP status of update URLs
-  local f_url_status=`curl -s -I ${f_url} | head -1 | cut -d' ' -f 2`
-  local f_url_experimental_status=`curl -s -I ${f_url_experimental} | head -1 | cut -d' ' -f 2`
-
-  if [ "${f_url_status}" -ne 200 ];then
-    logThis 0 "Factorio server URL returning '${f_url_status}'."
-    logThis 0 "Cannot perform update until this is resolved!"
-    exit 1
-  fi
-  if [ "${f_url_experimental_status}" -ne 200 ];then
-    logThis 0 "Factorio EXPERIMENTAL server URL returning '${f_url_experimental_status}'."
-    logThis 0 "Cannot perform update until this is resolved!"
-    exit 1
-  fi
+  updateCache
 fi
 
 
