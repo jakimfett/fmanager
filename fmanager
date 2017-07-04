@@ -31,6 +31,7 @@ script_start=`date +"${date_format}"`
 f_url_stable='https://www.factorio.com/download-headless'
 f_url_experimental='https://www.factorio.com/download-headless/experimental'
 f_url_selector='stable'
+f_package='headless/linux64'
 
 
 function now {
@@ -56,6 +57,41 @@ function logThis {
       runAsUser "echo `now` [level=$1]: $2 >> ${log_dir}${log_file}"
     fi
   fi
+}
+
+# Extra logging functionality
+function logging {
+  local clear_log=0
+  local display_log=1
+
+  for i in "$@"; do
+    case "$i" in
+      clear)
+        clear_log=1
+        display_log=0
+      ;;
+    esac
+  done
+
+  if [ ${display_log} -ne 0 ];then
+    tailLog
+  fi
+  
+  if [ ${clear_log} -ne 0 ];then
+    clearLog
+  fi
+}
+
+function tailLog {
+  runAsUser "tail -20 ${log_dir}${log_file}"
+}
+
+function clearLog {
+  local temp_log='/tmp/cleared.log'
+  runAsUser "grep 'Log cleared' ${log_dir}${log_file} > ${temp_log}"
+  runAsUser "cat ${temp_log} > ${log_dir}${log_file}"
+  logThis 0 "Log cleared at '`now`' by `whoami`."
+  runAsUser "rm -rf /tmp/cleared.log"
 }
 
 # Check if a user has sudo access
@@ -111,17 +147,6 @@ function init {
   else
     logThis 0 'ERROR: No sudo privileges, cannot run initialization!'
   fi
-}
-
-function tailLog {
-  runAsUser "tail -20 ${log_dir}${log_file}"
-}
-function clearLog {
-  local temp_log='/tmp/cleared.log'
-  runAsUser "grep 'Log cleared' ${log_dir}${log_file} > ${temp_log}"
-  runAsUser "cat ${temp_log} > ${log_dir}${log_file}"
-  logThis 0 "Log cleared at '`now`' by `whoami`."
-  runAsUser "rm -rf /tmp/cleared.log"
 }
 
 function updateCache {
@@ -272,28 +297,6 @@ fi
 if [ ${DOINIT} -ne 0 ];then
   init
 fi
-
-function logging {
-  local clear_log=0
-  local display_log=1
-
-  for i in "$@"; do
-    case "$i" in
-      clear)
-        clear_log=1
-        display_log=0
-      ;;
-    esac
-  done
-
-  if [ ${display_log} -ne 0 ];then
-    tailLog
-  fi
-  
-  if [ ${clear_log} -ne 0 ];then
-    clearLog
-  fi
-}
 
 if [ ${LOG} -ne 0 ];then
   logging $@
