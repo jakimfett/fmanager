@@ -202,21 +202,16 @@ function update {
     version=$(cat ${version_file} | head -1)
   fi
   
-  if [ ! -f "${cache_dir}${version}.tar.gz" ];then
-    echo "No file '${cache_dir}${version}.tar.gz' update cannot continue!"
-    exit 1
-  fi
-  
   for i in "$@"; do
     case "$i" in
+      update)
+        update_cache=1
+        download=1
+      ;;
       clear)
         clear_cache=1
-        download=0
-        unpack=0
       ;;
       unpack)
-        clear_cache=0
-        download=0
         unpack=1
       ;;
     esac
@@ -234,6 +229,12 @@ function update {
   fi
   
   if [ ${unpack} -ne 0 ];then
+
+    if [ ! -f "${cache_dir}${version}.tar.gz" ];then
+      echo "No file '${cache_dir}${version}.tar.gz' found, update cannot continue!"
+      exit 1
+    fi
+  
     runAsUser "tar -xf ${cache_dir}${version}.tar.gz -C /tmp/"
     runAsUser "mv /tmp/factorio ${cache_dir}${version}"
   fi
