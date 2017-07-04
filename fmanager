@@ -192,12 +192,22 @@ function update {
   local update_cache=1
   local clear_cache=0
   local download=1
+  local unpack=0
+  
+  
+  local version=`cat ${version_file} | head -1`
 
   for i in "$@"; do
     case "$i" in
       clear)
         clear_cache=1
         download=0
+        unpack=0
+      ;;
+      unpack)
+        clear_cache=0
+        download=0
+        unpack=1
       ;;
     esac
   done
@@ -210,9 +220,12 @@ function update {
   fi
 
   if [ ${download} -ne 0 ];then
-      local version=`cat ${version_file} | head -1`
-      local filesize=$()
-      runAsUser "wget ${f_url}get-download/${version}/${f_package} --output-document=${cache_dir}${version}.tar.gz"
+    runAsUser "wget ${f_url}get-download/${version}/${f_package} --output-document=${cache_dir}${version}.tar.gz"
+  fi
+  
+  if [ ${unpack} -ne 0 ];then
+    runAsUser "tar -xf ${cache_dir}${version}.tar.gz -C /tmp/"
+    runAsUser "mv /tmp/factorio ${cache_dir}${version}"
   fi
 
 }
@@ -310,8 +323,7 @@ else
       ;;
       clear)
       ;;
-      update)
-        UPDATE=1
+      unpack)
       ;;
       *)
         UNRECOGNIZED=1
