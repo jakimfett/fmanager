@@ -14,6 +14,10 @@
 configuration_dir='/etc/factorio/'
 install_dir='/opt/factorio/'
 log_dir='/var/log/factorio/'
+cache_dir='/var/cache/factorio/'
+
+version_file="${cache_dir}${0}_server.versions"
+manager_log_file="${log_dir}${0}.log"
 
 run_user='factorio'
 sudo_group='sudo'
@@ -24,7 +28,6 @@ LOGLEVEL=9
 
 date_format='%Y-%m-%d_%H:%M:%S'
 
-log_file="${0}.log"
 script_start=`date +"${date_format}"`
 
 # Server package download URLs
@@ -52,11 +55,34 @@ function runAsUser {
 function logThis {
   if [[ $1 =~ ^[0-9]+$ ]];then
     if [ ${LOGLEVEL} -ge $1 ];then
-      echo `now` [level=$1]: $2 | runAsUser "tee -a ${log_dir}${log_file}"
+      echo `now` [level=$1]: $2 | runAsUser "tee -a ${manager_log_file}"
     else
-      runAsUser "echo `now` [level=$1]: $2 >> ${log_dir}${log_file}"
+      runAsUser "echo `now` [level=$1]: $2 >> ${manager_log_file}"
     fi
   fi
+}
+
+function tailLog {
+  runAsUser "tail -20 ${manager_log_file}"
+}
+
+function clearLog {
+  local temp_log='/tmp/cleared.log'
+  runAsUser "grep 'Log cleared' ${manager_log_file} > ${temp_log}"
+  runAsUser "cat ${temp_log} > ${manager_log_file}"
+  logThis 0 "Log cleared at '`now`' by `whoami`."
+  runAsUser "rm -rf /tmp/cleared.log"
+}
+
+# Check if a user has sudo access
+# usage: if [ checkSudo ];then sudo <command>;else;<error>;fi
+# return: 0 if sudo, 1 if not
+function checkSudo {
+  local sudo_test=$(sudo -v 2>&1)
+  if [ -z "${sudo_test}" ];then
+    return 0
+  fi
+  return 1
 }
 
 # Extra logging functionality
@@ -82,34 +108,12 @@ function logging {
   fi
 }
 
-function tailLog {
-  runAsUser "tail -20 ${log_dir}${log_file}"
-}
-
-function clearLog {
-  local temp_log='/tmp/cleared.log'
-  runAsUser "grep 'Log cleared' ${log_dir}${log_file} > ${temp_log}"
-  runAsUser "cat ${temp_log} > ${log_dir}${log_file}"
-  logThis 0 "Log cleared at '`now`' by `whoami`."
-  runAsUser "rm -rf /tmp/cleared.log"
-}
-
-# Check if a user has sudo access
-# usage: if [ checkSudo ];then sudo <command>;else;<error>;fi
-# return: 0 if sudo, 1 if not
-function checkSudo {
-  local sudo_test=$(sudo -v 2>&1)
-  if [ -z "${sudo_test}" ];then
-    return 0
-  fi
-  return 1
-}
 
 # Set up folder defaults, non-destructively
 function folderDefaults {
   if [ checkSudo ];then
-    if [ ! -d ${log_dir} ] || [ ! -d ${install_dir} ] || [ ! -d ${configuration_dir} ];then
-      sudo mkdir -p ${log_dir} ${install_dir} ${configuration_dir}
+    if [ ! -d ${log_dir} ] || [ ! -d ${install_dir} ] || [ ! -d ${configuration_dir} ] || [ ! -d ${cache_dir} ];then
+      sudo mkdir -p ${log_dir} ${install_dir} ${configuration_dir} ${cache_dir}
     fi
     
     if [[ ! "`id -u ${run_user} 2>&1`" =~ ^[0-9]+$ ]];then
@@ -118,8 +122,8 @@ function folderDefaults {
       logThis 0 "User '${run_user}' created"
     fi
     
-    sudo chown -R ${run_user}:${sudo_group} ${log_dir} ${install_dir} ${configuration_dir}
-    sudo chmod ug+wrx ${log_dir} ${install_dir} ${configuration_dir}
+    sudo chown -R ${run_user}:${sudo_group} ${log_dir} ${install_dir} ${configuration_dir} ${cache_dir}
+    sudo chmod ug+wrx ${log_dir} ${install_dir} ${configuration_dir} ${cache_dir}
   else
     logThis 0 'ERROR: No sudo privileges!'
   fi
@@ -127,8 +131,8 @@ function folderDefaults {
 
 function fileDefaults {
   if [ checkSudo ];then
-    if [ ! -f "${log_dir}${log_file}" ];then
-      sudo touch ${log_dir}${log_file}
+    if [ ! -f "${manager_log_file}" ];then
+      sudo touch ${manager_log_file} ${version_file} 
     fi
   else
     logThis 0 'ERROR: No sudo privileges!'
@@ -153,22 +157,28 @@ function updateCache {
   # Get HTTP status of update URLs
   logThis 2 "Getting update URL status for '${f_url_selector}'..."
   
-  local f_url_status=0
+  local url=''
+  local url_status=0
+  
   if [[ "${f_url_selector}" == *"stable"* ]];then
-    f_url_status=$(curl -s -I ${f_url_stable} | head -1 | cut -d' ' -f 2)
+    url_status=$(curl -s -I ${f_url_stable} | head -1 | cut -d' ' -f 2)
+    url=${f_url_stable}
   elif [[ "${f_url_selector}" == *"experimental"* ]];then
-    f_url_status=$(curl -s -I ${f_url_experimental} | head -1 | cut -d' ' -f 2)
+    url_status=$(curl -s -I ${f_url_experimental} | head -1 | cut -d' ' -f 2)
+    url=${f_url_experimental}
   fi
   
   logThis 2 "URL status fetched."
 
-  if [ "${f_url_status}" -ne 200 ];then
-    logThis 0 "Factorio server URL returning '${f_url_status}'."
+  if [ "${url_status}" -ne 200 ];then
+    logThis 0 "Factorio server URL returning '${url_status}'."
     logThis 0 "Cannot perform update until this is resolved!"
     exit 1
   fi
   
-  # @TODO - actually download the headless server to cache directory
+  # @TODO - actually download the headless server version numbers to cache directory
+  runAsUser "curl --silent ${url} | grep get-download | cut -d'/' -f3 > ${version_file}.tmp"
+  
 }
 
 # Display usage information.
@@ -180,9 +190,12 @@ function usageHelp {
     echo -e "\t init \t\t\t creates folders and files for configuration and logging. (sudo only)"
   fi
   echo -e "\t log \t\t\t shows the last 50 lines of the manager log."
-  if [ checkSudo ];then
-    echo -e "\t log clear \t\t empties the manager log. (sudo only)"
-  fi
+  echo -e "\t log clear \t\t empties the manager log. (sudo only)"
+  echo
+  echo -e "\t update \t\t downloads the latest server to the cache directory."
+  echo
+  echo -e "\t cache clear \t\t purges the cache."
+  
   echo
   echo "Available (optional) variables:"
   echo -e "\t\$LOGLEVEL\tdefault is '1' \t\t displays extra function status and debugging text if set to non-zero"
@@ -254,7 +267,7 @@ else
       clear)
       ;;
       update)
-        UPDATECACHE=1
+        UPDATE=1
       ;;
       *)
         UNRECOGNIZED=1
@@ -302,14 +315,14 @@ if [ ${LOG} -ne 0 ];then
   logging $@
 fi
 
-# Handle updating
-if [ $UPDATECACHE -ne 0 ];then
-  updateCache
+if [ ${UPDATE} -ne 0 ];then
+  update $@
 fi
 
 
 exit 0
 
+# @TODO - check for running server(s) before updating/clearing cache
 
 # List of commands from
 # https://github.com/factoriommo/factorio-multienv-ctl/blob/730e6cf495e4a4fe5e1530aec0e6a26465c28f89/factorio#L53-L71
